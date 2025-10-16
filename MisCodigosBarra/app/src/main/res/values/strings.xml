@@ -2,5 +2,10 @@
     <string name="app_name">MisCodigosBarra</string>
     <string name="title_home">Home</string>
     <string name="title_dashboard">Dashboard</string>
-    <string name="title_notifications">Notifications</string>
+
+
+    <string name="captured_image_description">Imagen capturada</string>
+    <string name="take_picture_and_analyze">Tomar Foto</string>
+    <string name="select_picture_and_analyze">Abrir Galeria</string>
+
 </resources>
