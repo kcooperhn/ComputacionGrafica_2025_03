@@ -6,6 +6,9 @@ import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Point;
+import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -22,6 +25,10 @@ import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
 import androidx.fragment.app.Fragment;
 
+import com.google.mlkit.vision.barcode.BarcodeScanner;
+import com.google.mlkit.vision.barcode.BarcodeScannerOptions;
+import com.google.mlkit.vision.barcode.BarcodeScanning;
+import com.google.mlkit.vision.barcode.common.Barcode;
 import com.google.mlkit.vision.common.InputImage;
 
 import java.io.File;
@@ -88,9 +95,9 @@ public class DashboardFragment extends Fragment {
     private File createImageFile() throws IOException {
         String fechaHoy = new SimpleDateFormat("yyyyMMdd_HHmmss").format(System.currentTimeMillis());
         String nombreArchivo = "JPEG_" + fechaHoy + "_";
-        File directorioImagenes = this.getContext().getExternalFilesDir(android.os.Environment.DIRECTORY_PICTURES);
-        File archivoImagen = File.createTempFile(nombreArchivo, ".jpg", directorioImagenes);
-        directorioImagenes = archivoImagen.getAbsoluteFile();
+        File folderImagenes = this.getContext().getExternalFilesDir(android.os.Environment.DIRECTORY_PICTURES);
+        File archivoImagen = File.createTempFile(nombreArchivo, ".jpg", folderImagenes);
+        directorioImagenes = archivoImagen.getAbsolutePath();
 
         return archivoImagen;
     }
@@ -135,15 +142,84 @@ public class DashboardFragment extends Fragment {
     }
     
     private void AnalizarCodigoBarras(){
-        
-        
+        Log.d(IMAGE_CAMERA_TAG,"Comenzando analisis con ML Kit");
+
+        BarcodeScannerOptions options =
+                new BarcodeScannerOptions.Builder()
+                .enableAllPotentialBarcodes()
+                .build();
+        int gradosRotacion = 90;
+        InputImage imagen = InputImage.fromBitmap(imagenSeleccionada, gradosRotacion);
+        Log.d(IMAGE_CAMERA_TAG,"Imagen rotada "+gradosRotacion+" grados");
+
+        BarcodeScanner scanner = BarcodeScanning.getClient();
+        scanner.process(imagen).addOnSuccessListener(barcodes -> {
+            Log.d(IMAGE_CAMERA_TAG,"Comenzando lectura de codigo de barra");
+            if (barcodes.isEmpty()) {
+                showMessage("No se encontraron códigos de barras en la imagen");
+                Log.d(IMAGE_CAMERA_TAG,"No se encontraron códigos de barras en la imagen");
+            }else{
+                Log.d(IMAGE_CAMERA_TAG,"Se detectaron codigos de barra en la imagen");
+            }
+            for (Barcode barcode : barcodes) {
+                Log.d(IMAGE_CAMERA_TAG,"Codigo de barras detectado, leyendo...");
+                Rect bounds = barcode.getBoundingBox();
+                Point[] corners = barcode.getCornerPoints();
+                String rawValue = barcode.getRawValue();
+
+                int valueType = barcode.getValueType();
+
+                switch (valueType) {
+                    case Barcode.TYPE_WIFI:
+                        Log.d(IMAGE_CAMERA_TAG,"Codigo de barras de tipo WIFI");
+                        String ssid = barcode.getWifi().getSsid();
+                        String password = barcode.getWifi().getPassword();
+                        int type = barcode.getWifi().getEncryptionType();
+                        binding.textViewMlkitResult.setText("SSID: " + ssid + "\nPassword: " + password + "\nTipo: " + type);
+                        break;
+                    case Barcode.TYPE_URL:
+                        Log.d(IMAGE_CAMERA_TAG,"Codigo de barras de tipo URL");
+                        String title = barcode.getUrl().getTitle();
+                        String url = barcode.getUrl().getUrl();
+                        binding.textViewMlkitResult.setText("Titulo: " + title + "\nURL: " + url);
+                        break;
+                    default:
+                        Log.d(IMAGE_CAMERA_TAG,"Otro tipo de Codigo de barras");
+                        binding.textViewMlkitResult.setText("Valor: " + rawValue);
+                        break;
+                }
+            }
+
+        }).addOnFailureListener(error -> {
+            Log.d(IMAGE_CAMERA_TAG,"Fallo al procesar escaneo de codigos de barra");
+            String mensajeError = "Error al obtener información de códigos de barra de la imagen: "  + error.getLocalizedMessage() ;
+            binding.textViewMlkitResult.setText(mensajeError);
+            showMessage("Error al obtener la información de la imagen");
+        });
+
     }
 
     @Override
     public void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         if(requestCode == REQUEST_IMAGE_CAPTURE && resultCode == RESULT_OK){
             //ABRI LA APLICACION DE CAMARA Y TOME BIEN LA FOTO
+            if(!"".equals(directorioImagenes) && directorioImagenes != null){
+                File imagen = new File(directorioImagenes);
+                if(imagen.exists()){
+                    Bitmap bitmap = BitmapFactory.decodeFile(imagen.getAbsolutePath());
+                    int megapixeles = bitmap.getWidth() * bitmap.getHeight() / 1000000;
+                    int factor = megapixeles / 2; // CALCULANDO FACTOR DE REDUCCIÓN DE LA IMAGEN. 10MX -> 5MX
+                    Log.d(IMAGE_CAMERA_TAG,"Imagen tomada es de tamaño: " +bitmap.getWidth()+"x"+bitmap.getHeight()+" = " + megapixeles + " megapixeles");
 
+                    //REDIMENSIONANDO IMAGEN
+                    bitmap = Bitmap.createScaledBitmap(bitmap, bitmap.getWidth() / factor, bitmap.getHeight() / factor, false);
+                    imagenSeleccionada = bitmap;
+                    megapixeles = bitmap.getWidth() * bitmap.getHeight() / 1000000;
+                    Log.d(IMAGE_CAMERA_TAG,"Imagen redimensionada es de tamaño: " +bitmap.getWidth()+"x"+bitmap.getHeight()+" = " + megapixeles + " megapixeles");
+                    binding.imageViewCaptured.setImageBitmap(imagenSeleccionada);
+                    AnalizarCodigoBarras();
+                }
+            }
         }
         if(requestCode == REQUEST_PICK_IMAGE && resultCode == RESULT_OK){
             //ABRI LA APLICACION DE GALERIA Y SELECCIONE UNA FOTO
@@ -156,6 +232,7 @@ public class DashboardFragment extends Fragment {
                     InputImage imagen = InputImage.fromFilePath(this.getContext(), fotoUri);
                     binding.imageViewCaptured.setImageURI(fotoUri);
                     imagenSeleccionada = imagen.getBitmapInternal();
+                    AnalizarCodigoBarras();
                 } catch (IOException e) {
                     throw new RuntimeException(e);
                 }
